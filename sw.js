@@ -1,6 +1,6 @@
 /* 런등수 — 최소 서비스워커 (앱 셸 캐시, 오프라인 실행 + 홈화면 설치 가능) */
-const CACHE = 'run-rank-v2';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'run-rank-v3';
+const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './data.js'];
 
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));

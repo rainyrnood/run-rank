@@ -13,6 +13,10 @@
 <meta name="apple-mobile-web-app-title" content="런등수">
 <link rel="apple-touch-icon" href="./icon.svg">
 
+<!-- 실시간 위치 지도 (Leaflet, CDN) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <style>
   :root{
     --bg:#0b1220; --panel:#141d2e; --panel2:#1b2740;
@@ -81,6 +85,9 @@
   .hide{display:none !important;}
   .note{font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;}
   #status{font-size:12px; color:var(--accent); margin-top:8px; min-height:16px;}
+  #mapWrap{margin-top:14px;}
+  #map{height:240px; border-radius:18px; overflow:hidden; border:1px solid var(--line); background:var(--panel);}
+  .maplbl{font-size:11px; color:var(--muted); margin:0 0 6px 2px;}
 </style>
 </head>
 <body>
@@ -114,6 +121,12 @@
   <div class="stat"><div class="t">페이스</div><div class="v" id="pace">--<span style="font-size:12px;color:var(--muted)"> /km</span></div></div>
 </div>
 
+<!-- 실시간 위치 지도 (GPS 모드 전용) -->
+<div id="mapWrap" class="hide">
+  <div class="maplbl">실시간 위치 — 초록 점이 현재 나, 선이 이동 경로</div>
+  <div id="map"></div>
+</div>
+
 <!-- 컨트롤 -->
 <div class="controls">
   <div class="row">
@@ -127,9 +140,10 @@
     <div style="flex:1">
       <label class="fld">종목</label>
       <select id="distance">
-        <option value="10000">10 km</option>
-        <option value="21097">하프 마라톤</option>
-        <option value="42195">풀 마라톤</option>
+        <option value="5000">5 km (한국 통계)</option>
+        <option value="10000" selected>10 km (한국 통계)</option>
+        <option value="21097">하프 (임시 데이터)</option>
+        <option value="42195">풀 (임시 데이터)</option>
       </select>
     </div>
   </div>
@@ -154,11 +168,12 @@
   <div id="status"></div>
   <div id="dbg" class="note" style="color:var(--behind)"></div>
   <div class="note">
-    가상 집단 페이스 분포는 임시 placeholder(아마추어 추정치)입니다 — 추후 실제 통계로 교체.
+    5km·10km는 한국 일반인 통계(혼성 추정)를 100명으로 표준화한 데이터를 씁니다. 하프·풀은 아직 임시값.
     GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
   </div>
 </div>
 
+<script src="./data.js"></script>
 <script>
 /* ===========================================================
    런등수 프로토타입
@@ -194,17 +209,22 @@ function gauss(rng){ // Box-Muller
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
 }
 
-/* ---- 가상 집단 생성: 종목별 페이스 분포(placeholder) ---- */
+/* ---- 가상 집단 생성 ---- */
 function buildField(){
-  // 평균/표준편차(초/km) — 아마추어 추정치, 추후 실제 통계로 교체
-  const cfg = {10000:{m:390,s:70}, 21097:{m:420,s:80}, 42195:{m:480,s:95}};
-  const c = cfg[raceDistance] || cfg[10000];
-  const rng = mulberry32(raceDistance);  // 종목별 고정 시드
+  // 5k·10k: data.js의 한국 통계 기반 100명 표준화 데이터 사용
+  if(window.RUN_STATS){
+    const stat = window.RUN_STATS.buildStandardField(raceDistance);
+    if(stat){ field = stat; return; }
+  }
+  // 하프·풀: 통계 미확보 → 임시 정규분포 placeholder
+  const cfg = {21097:{m:420,s:80}, 42195:{m:480,s:95}};
+  const c = cfg[raceDistance] || {m:420,s:80};
+  const rng = mulberry32(raceDistance);
   field = [];
   for(let i=0;i<N;i++){
-    let pace = c.m + gauss(rng)*c.s;          // 초/km
-    pace = Math.max(240, Math.min(600, pace)); // 4:00~10:00/km 클램프
-    field.push(1000/pace);                     // m/s
+    let pace = c.m + gauss(rng)*c.s;
+    pace = Math.max(240, Math.min(600, pace));
+    field.push(1000/pace);
   }
 }
 
@@ -286,12 +306,16 @@ function addDot(track, top, cls, label, color){
 /* ---- 루프 ---- */
 let timer=null;
 function loop(){
-  if(mode==='sim' && running){
-    const now=performance.now();
-    const dt=(now-lastTick)/1000 * simSpeed; lastTick=now;
-    elapsed+=dt;
-    myDist+=(1000/myPaceSec)*dt;
-    if(myDist>raceDistance) myDist=raceDistance;
+  if(running){
+    if(mode==='sim'){
+      const now=performance.now();
+      const dt=(now-lastTick)/1000 * simSpeed; lastTick=now;
+      elapsed+=dt;
+      myDist+=(1000/myPaceSec)*dt;
+      if(myDist>raceDistance) myDist=raceDistance;
+    } else if(mode==='gps'){
+      elapsed=(Date.now()-gpsStart)/1000;  // GPS 수신과 무관하게 시계는 즉시·연속으로 흐름
+    }
   }
   render();
 }
@@ -318,11 +342,11 @@ function startGPS(){
   const onPos = pos=>{
     updates++;
     const c={lat:pos.coords.latitude, lon:pos.coords.longitude};
-    elapsed=(Date.now()-gpsStart)/1000;
     if(lastCoord){ const step=haversine(lastCoord,c); if(step<50) myDist+=step; }
     lastCoord=c;
     $('status').textContent='GPS 추적 중 · 정확도 ±'+Math.round(pos.coords.accuracy)+'m';
     $('dbg').textContent='수신 '+updates+'회 · 위도 '+c.lat.toFixed(5)+' · 경도 '+c.lon.toFixed(5)+' · 누적 '+myDist.toFixed(1)+'m';
+    updateMap(c, pos.coords.accuracy);   // 실시간 위치 지도 갱신
   };
   const onErr = err=>{
     const map={1:'권한 거부됨 → 설정 > 개인정보보호 > 위치서비스 > Safari웹사이트 허용', 2:'위치 못 잡음(실내/신호 약함, 야외에서 시도)', 3:'시간 초과(신호 약함)'};
@@ -335,6 +359,27 @@ function startGPS(){
   return true;
 }
 function stopGPS(){ if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
+
+/* ---- 실시간 위치 지도 ---- */
+let map=null, meMarker=null, accCircle=null, pathLine=null, pathPts=[];
+function ensureMap(){
+  if(map || typeof L==='undefined') return;
+  map = L.map('map',{attributionControl:false}).setView([37.5665,126.9780],16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  pathLine = L.polyline([], {color:'#43e0a0', weight:5, opacity:.9}).addTo(map);
+  setTimeout(()=>map.invalidateSize(),200);
+}
+function updateMap(c, acc){
+  if(typeof L==='undefined') return;
+  ensureMap();
+  const ll=[c.lat,c.lon];
+  if(!meMarker){ meMarker=L.circleMarker(ll,{radius:9,color:'#fff',weight:2,fillColor:'#43e0a0',fillOpacity:1}).addTo(map); }
+  else meMarker.setLatLng(ll);
+  if(acc){ if(!accCircle){ accCircle=L.circle(ll,{radius:acc,color:'#5aa9ff',weight:1,opacity:.5,fillOpacity:.08}).addTo(map); } else { accCircle.setLatLng(ll); accCircle.setRadius(acc); } }
+  pathPts.push(ll); pathLine.setLatLngs(pathPts);
+  map.setView(ll, Math.max(map.getZoom(),16));
+}
+function clearPath(){ pathPts=[]; if(pathLine) pathLine.setLatLngs([]); }
 
 /* ---- 시작/정지/리셋 ---- */
 async function start(){
@@ -350,8 +395,8 @@ function stop(){
   $('stopBtn').classList.add('hide'); $('startBtn').classList.remove('hide');
 }
 function reset(){
-  stop(); elapsed=0; myDist=0; lastCoord=null;
-  $('status').textContent=''; $('rankLabel').textContent='대기 중 — 시작을 누르세요';
+  stop(); elapsed=0; myDist=0; lastCoord=null; clearPath();
+  $('status').textContent=''; $('dbg').textContent=''; $('rankLabel').textContent='대기 중 — 시작을 누르세요';
   render();
 }
 
@@ -362,6 +407,7 @@ $('modeSeg').addEventListener('click',e=>{
   mode=b.dataset.mode;
   $('modeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   $('simPanel').classList.toggle('hide', mode!=='sim');
+  $('mapWrap').classList.toggle('hide', mode!=='gps');   // 지도는 GPS 모드에서만
 });
 $('distance').addEventListener('change',e=>{ raceDistance=+e.target.value; buildField(); reset(); });
 $('paceRange').addEventListener('input',e=>{ myPaceSec=+e.target.value; $('paceLbl').textContent=fmtPace(myPaceSec)+' /km'; });
