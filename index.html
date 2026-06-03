@@ -152,6 +152,7 @@
     <button class="btn reset" id="resetBtn">리셋</button>
   </div>
   <div id="status"></div>
+  <div id="dbg" class="note" style="color:var(--behind)"></div>
   <div class="note">
     가상 집단 페이스 분포는 임시 placeholder(아마추어 추정치)입니다 — 추후 실제 통계로 교체.
     GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
@@ -311,20 +312,26 @@ function haversine(a,b){
 }
 function startGPS(){
   if(!('geolocation' in navigator)){ $('status').textContent='이 기기는 위치를 지원하지 않습니다.'; return false; }
-  $('status').textContent='GPS 신호 잡는 중…';
+  $('status').textContent='GPS 권한 요청 중 — 팝업이 뜨면 [허용]을 누르세요…';
+  let updates=0;
   gpsStart=Date.now(); lastCoord=null;
-  watchId=navigator.geolocation.watchPosition(pos=>{
+  const onPos = pos=>{
+    updates++;
     const c={lat:pos.coords.latitude, lon:pos.coords.longitude};
     elapsed=(Date.now()-gpsStart)/1000;
-    if(lastCoord){
-      const step=haversine(lastCoord,c);
-      if(step<50) myDist+=step; // 튀는 값 방지(>50m/업데이트 무시)
-    }
+    if(lastCoord){ const step=haversine(lastCoord,c); if(step<50) myDist+=step; }
     lastCoord=c;
     $('status').textContent='GPS 추적 중 · 정확도 ±'+Math.round(pos.coords.accuracy)+'m';
-  }, err=>{
-    $('status').textContent='GPS 오류: '+err.message+' (설정에서 위치 권한 허용 필요)';
-  }, {enableHighAccuracy:true, maximumAge:1000, timeout:10000});
+    $('dbg').textContent='수신 '+updates+'회 · 위도 '+c.lat.toFixed(5)+' · 경도 '+c.lon.toFixed(5)+' · 누적 '+myDist.toFixed(1)+'m';
+  };
+  const onErr = err=>{
+    const map={1:'권한 거부됨 → 설정 > 개인정보보호 > 위치서비스 > Safari웹사이트 허용', 2:'위치 못 잡음(실내/신호 약함, 야외에서 시도)', 3:'시간 초과(신호 약함)'};
+    $('status').textContent='GPS 오류 ['+err.code+']: '+(map[err.code]||err.message);
+    $('dbg').textContent='권한이 안 떴다면: 홈화면 앱 대신 사파리 탭에서 직접 열어 시도';
+  };
+  // 권한 팝업을 확실히 띄우기 위해 단발 요청 먼저, 이어서 연속 추적
+  navigator.geolocation.getCurrentPosition(onPos, onErr, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+  watchId=navigator.geolocation.watchPosition(onPos, onErr, {enableHighAccuracy:true, maximumAge:1000, timeout:20000});
   return true;
 }
 function stopGPS(){ if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
