@@ -85,6 +85,11 @@
   .hide{display:none !important;}
   .note{font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;}
   #status{font-size:12px; color:var(--accent); margin-top:8px; min-height:16px;}
+  table.ref{width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;}
+  table.ref th, table.ref td{padding:8px 5px; text-align:center; border-bottom:1px solid var(--line);}
+  table.ref th{color:var(--muted); font-weight:700; font-size:11px;}
+  table.ref td.g{color:var(--accent); font-weight:800;}
+  table.ref td.p{color:var(--muted);}
   #mapWrap{margin-top:14px;}
   #map{height:240px; border-radius:18px; overflow:hidden; border:1px solid var(--line); background:var(--panel);}
   .maplbl{font-size:11px; color:var(--muted); margin:0 0 6px 2px;}
@@ -95,6 +100,7 @@
 <h1>런등수 — 실시간 등수 프로토타입</h1>
 <div class="sub">공개 통계 기반 가상 집단 100명 중, 지금 내 등수</div>
 
+<div id="raceView">
 <!-- 등수 -->
 <div class="rankCard">
   <div class="rankNum"><span id="rank">--</span><small> / <span id="field">100</span></small></div>
@@ -126,6 +132,7 @@
   <div class="maplbl">실시간 위치 — 초록 점이 현재 나, 선이 이동 경로</div>
   <div id="map"></div>
 </div>
+</div><!-- /raceView -->
 
 <!-- 컨트롤 -->
 <div class="controls">
@@ -133,8 +140,11 @@
     <div class="seg" id="modeSeg">
       <button data-mode="gps" class="on">GPS 실측</button>
       <button data-mode="sim">시뮬레이션</button>
+      <button data-mode="ref">참고표</button>
     </div>
   </div>
+
+  <div id="ctrlBody">
 
   <div class="row">
     <div style="flex:1">
@@ -170,6 +180,13 @@
   <div class="note">
     5km·10km는 한국 일반인 통계 + 실제 러너 페이싱 패턴(능력별 후반 감속·변동)으로 99명 각자의 페이스 곡선을 생성합니다(추월·역전 발생). 하프·풀 완주시간은 아직 임시값.
     GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
+  </div>
+  </div><!-- /ctrlBody -->
+
+  <div id="refPanel" class="hide">
+    <div class="maplbl">한국 일반인 기록 기준표 — 수능 등급식 상위 백분위별 (혼성 추정)</div>
+    <div id="refTableWrap"></div>
+    <div class="note">분포 데이터(data.js)에서 산출. 각 칸은 해당 상위 % 경계의 완주시간과 km당 페이스. 5km·10km만 실통계 기반.</div>
   </div>
 </div>
 
@@ -221,12 +238,20 @@ function fieldDistances(t){
   return field.map(r=>r.distanceAt(t));
 }
 
-/* ---- 등수/앞뒤 주자 계산 ---- */
+/* ---- 등수/앞뒤 주자 계산 ----
+   주의: 완주 후엔 모든 완주자가 거리=raceDistance로 같아져 '거리 비교'가 깨진다.
+   그래서 내가 완주했으면 '나보다 먼저 완주한 사람(finish < 현재시각)'만 앞으로 센다. */
 function computeRank(t, d){
-  const ds = fieldDistances(t);
+  const myFin = d >= raceDistance;
+  const ds = new Array(field.length);
   let ahead = 0, nextAhead = Infinity, nextBehind = -Infinity;
-  for(const x of ds){
-    if(x > d){ ahead++; if(x < nextAhead) nextAhead = x; }
+  for(let k=0;k<field.length;k++){
+    const r = field[k];
+    const x = r.distanceAt(t); ds[k] = x;
+    let isAhead;
+    if(myFin) isAhead = (r.finish < t);        // 나보다 먼저 결승선 통과한 사람만 앞
+    else      isAhead = x > d;                  // 달리는 중엔 더 멀리 간 사람이 앞(완주자도 포함됨)
+    if(isAhead){ ahead++; if(x < nextAhead) nextAhead = x; }
     else if(x < d){ if(x > nextBehind) nextBehind = x; }
   }
   return {
@@ -429,9 +454,32 @@ $('modeSeg').addEventListener('click',e=>{
   reset();
   mode=b.dataset.mode;
   $('modeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  const isRef = mode==='ref';
+  $('raceView').classList.toggle('hide', isRef);   // 참고표 탭에선 레이스 UI 숨김
+  $('ctrlBody').classList.toggle('hide', isRef);
+  $('refPanel').classList.toggle('hide', !isRef);
+  if(isRef) buildRefTable();
   $('simPanel').classList.toggle('hide', mode!=='sim');
   $('mapWrap').classList.toggle('hide', mode!=='gps');   // 지도는 GPS 모드에서만
 });
+
+/* ---- 참고표: 수능 등급식 상위 백분위별 5K·10K 기록·페이스 ---- */
+function buildRefTable(){
+  const grades = [
+    {g:'1등급', top:4}, {g:'2등급', top:11}, {g:'3등급', top:23}, {g:'4등급', top:40},
+    {g:'5등급', top:60}, {g:'6등급', top:77}, {g:'7등급', top:89}, {g:'8등급', top:96}, {g:'9등급', top:99}
+  ];
+  let h = '<table class="ref"><tr><th>등급</th><th>상위</th><th>5K 기록</th><th>5K /km</th><th>10K 기록</th><th>10K /km</th></tr>';
+  for(const gr of grades){
+    const t5 = window.RUN_STATS.finishSeconds(5000, gr.top);
+    const t10 = window.RUN_STATS.finishSeconds(10000, gr.top);
+    h += '<tr><td class="g">'+gr.g+'</td><td class="p">'+gr.top+'%</td>'
+       + '<td>'+fmtTime(t5)+'</td><td>'+fmtPace(t5/5)+'</td>'
+       + '<td>'+fmtTime(t10)+'</td><td>'+fmtPace(t10/10)+'</td></tr>';
+  }
+  h += '</table>';
+  $('refTableWrap').innerHTML = h;
+}
 $('distance').addEventListener('change',e=>{ raceDistance=+e.target.value; buildField(); reset(); });
 $('paceRange').addEventListener('input',e=>{ myPaceSec=+e.target.value; $('paceLbl').textContent=fmtPace(myPaceSec)+' /km'; });
 $('speedRange').addEventListener('input',e=>{ simSpeed=+e.target.value; $('speedLbl').textContent='x'+simSpeed; });
