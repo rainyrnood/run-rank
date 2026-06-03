@@ -384,29 +384,50 @@ function updateMap(c, acc){
 }
 function clearPath(){ pathPts=[]; if(pathLine) pathLine.setLatLngs([]); }
 
-/* ---- 시작(재개)/일시정지/완주정지/리셋 ---- */
+/* ---- 시작(재개)/일시정지/완주정지/리셋 + GPS 3초 카운트다운 ---- */
+let countdownTimer=null, counting=false;
 function updateButtons(){
-  $('startBtn').classList.toggle('hide', running);
-  $('pauseBtn').classList.toggle('hide', !running);
-  $('startBtn').textContent = (!running && elapsed>0) ? '재개' : '시작';
+  const active = running || counting;
+  $('startBtn').classList.toggle('hide', active);
+  $('pauseBtn').classList.toggle('hide', !active);
+  $('startBtn').textContent = (!active && elapsed>0) ? '재개' : '시작';
 }
-async function start(){            // 시작 또는 재개
-  if(running) return;
-  if(mode==='gps'){
-    await reqWakeLock();           // 재개 시에도 화면 유지 재요청
-    if(!gpsStarted){ if(!startGPS()) return; gpsStarted=true; }
-  }
-  running=true; lastTick=performance.now(); lastCoord=null; // 재개 시 거리 점프 방지
+function beginRun(){
+  running=true; lastTick=performance.now(); lastCoord=null; // 거리 점프 방지
+  if(mode==='gps') $('status').textContent='기록 시작 · GPS 추적 중';
   updateButtons();
   if(!timer) timer=setInterval(loop,100);
 }
-function pause(){                  // 일시정지 (상태 유지, GPS 추적은 계속)
+async function start(){            // 시작 또는 재개
+  if(running || counting) return;
+  if(mode==='gps'){
+    await reqWakeLock();
+    if(!gpsStarted){ if(!startGPS()) return; gpsStarted=true; }
+    if(elapsed===0){                // 새로 시작할 때만 3초 카운트다운(GPS 안정화)
+      counting=true; updateButtons();
+      let n=3;
+      $('rankLabel').textContent='3초 후 기록 시작';
+      $('status').textContent='GPS 안정화 중… '+n;
+      countdownTimer=setInterval(()=>{
+        n--;
+        if(n>0){ $('status').textContent='GPS 안정화 중… '+n; }
+        else { clearInterval(countdownTimer); countdownTimer=null; counting=false; beginRun(); }
+      },1000);
+      return;
+    }
+  }
+  beginRun();                       // 시뮬, 또는 GPS 재개는 즉시
+}
+function cancelCountdown(){ if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; } counting=false; }
+function pause(){
+  if(counting){ cancelCountdown(); $('status').textContent='시작 취소됨';
+    $('rankLabel').textContent = (elapsed>0)?'일시정지됨':'대기 중 — 시작을 누르세요'; updateButtons(); return; }
   running=false; lastCoord=null;
   $('status').textContent = (mode==='gps') ? '일시정지됨 — 재개를 누르세요 (위치는 계속 표시)' : '일시정지됨';
   updateButtons();
 }
 function stop(){                   // 완주 등 완전 정지
-  running=false; stopGPS(); gpsStarted=false;
+  running=false; cancelCountdown(); stopGPS(); gpsStarted=false;
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
   updateButtons();
 }
