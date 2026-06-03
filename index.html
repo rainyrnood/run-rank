@@ -168,7 +168,7 @@
   <div id="status"></div>
   <div id="dbg" class="note" style="color:var(--behind)"></div>
   <div class="note">
-    5km·10km는 한국 일반인 통계(혼성 추정)를 100명으로 표준화한 데이터를 씁니다. 하프·풀은 아직 임시값.
+    5km·10km는 한국 일반인 통계 + 실제 러너 페이싱 패턴(능력별 후반 감속·변동)으로 99명 각자의 페이스 곡선을 생성합니다(추월·역전 발생). 하프·풀 완주시간은 아직 임시값.
     GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
   </div>
 </div>
@@ -211,28 +211,14 @@ function gauss(rng){ // Box-Muller
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
 }
 
-/* ---- 가상 집단 생성 ---- */
+/* ---- 가상 집단 생성: 통계 완주시간 + 페이싱 곡선(data.js) ---- */
 function buildField(){
-  // 5k·10k: data.js의 한국 통계 기반 100명 표준화 데이터 사용
-  if(window.RUN_STATS){
-    const stat = window.RUN_STATS.buildStandardField(raceDistance);
-    if(stat){ field = stat; return; }
-  }
-  // 하프·풀: 통계 미확보 → 임시 정규분포 placeholder
-  const cfg = {21097:{m:420,s:80}, 42195:{m:480,s:95}};
-  const c = cfg[raceDistance] || {m:420,s:80};
-  const rng = mulberry32(raceDistance);
-  field = [];
-  for(let i=0;i<FIELD_N;i++){
-    let pace = c.m + gauss(rng)*c.s;
-    pace = Math.max(240, Math.min(600, pace));
-    field.push(1000/pace);
-  }
+  field = window.RUN_STATS.buildRunners(raceDistance, FIELD_N);
 }
 
-/* ---- t초 시점 각 가상 러너의 누적거리(등속, 결승선에서 캡) ---- */
+/* ---- t초 시점 각 가상 러너의 누적거리(페이싱 곡선 기반) ---- */
 function fieldDistances(t){
-  return field.map(v=>Math.min(v*t, raceDistance));
+  return field.map(r=>r.distanceAt(t));
 }
 
 /* ---- 등수/앞뒤 주자 계산 ---- */
