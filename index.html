@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>런등수</title>
+
+<!-- PWA / iOS 홈화면 추가용 메타 -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="런등수">
+<link rel="apple-touch-icon" href="./icon.svg">
+
+<style>
+  :root{
+    --bg:#0b1220; --panel:#141d2e; --panel2:#1b2740;
+    --txt:#e8eefc; --muted:#8aa0c4; --line:#243450;
+    --me:#43e0a0; --ahead:#ff6b6b; --behind:#5aa9ff; --accent:#ffd166;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro","Segoe UI",sans-serif;
+    -webkit-user-select:none; user-select:none;}
+  body{padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 16px); max-width:520px; margin:0 auto;}
+  h1{font-size:16px; font-weight:700; letter-spacing:.5px; margin:14px 0 4px; color:var(--muted);}
+  .sub{font-size:12px; color:var(--muted); margin-bottom:10px;}
+
+  /* 등수 메인 카드 */
+  .rankCard{background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px; text-align:center;}
+  .rankNum{font-size:72px; font-weight:800; line-height:1; color:var(--me);}
+  .rankNum small{font-size:22px; color:var(--muted); font-weight:600;}
+  .rankLabel{font-size:13px; color:var(--muted); margin-top:6px;}
+
+  /* 앞/뒤 주자 */
+  .gaps{display:flex; gap:10px; margin-top:14px;}
+  .gap{flex:1; background:var(--panel2); border-radius:14px; padding:12px; text-align:center;}
+  .gap .t{font-size:12px; color:var(--muted);}
+  .gap .v{font-size:26px; font-weight:800; margin-top:4px;}
+  .gap.ahead .v{color:var(--ahead);}
+  .gap.behind .v{color:var(--behind);}
+  .gap .u{font-size:13px; color:var(--muted); font-weight:600;}
+
+  /* 트랙 시각화 */
+  .track{position:relative; height:300px; background:var(--panel); border:1px solid var(--line);
+    border-radius:18px; margin-top:14px; overflow:hidden;}
+  .trackTop,.trackBot{position:absolute; left:10px; font-size:11px; color:var(--muted);}
+  .trackTop{top:8px;} .trackBot{bottom:8px;}
+  .centerLine{position:absolute; left:0; right:0; top:50%; height:2px; background:var(--line);}
+  .dot{position:absolute; left:50%; width:10px; height:10px; border-radius:50%;
+    transform:translate(-50%,-50%); background:var(--muted); opacity:.5;}
+  .dot.me{width:18px; height:18px; background:var(--me); opacity:1; box-shadow:0 0 14px var(--me); z-index:5;}
+  .dot.nAhead{background:var(--ahead); opacity:1; width:13px; height:13px;}
+  .dot.nBehind{background:var(--behind); opacity:1; width:13px; height:13px;}
+  .dotLbl{position:absolute; left:calc(50% + 14px); transform:translateY(-50%); font-size:11px; font-weight:700; white-space:nowrap;}
+
+  /* 보조 스탯 */
+  .stats{display:flex; gap:10px; margin-top:14px;}
+  .stat{flex:1; background:var(--panel2); border-radius:14px; padding:10px; text-align:center;}
+  .stat .t{font-size:11px; color:var(--muted);}
+  .stat .v{font-size:20px; font-weight:800; margin-top:3px;}
+
+  /* 컨트롤 */
+  .controls{margin-top:16px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:14px;}
+  .row{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
+  .seg{display:flex; background:var(--panel2); border-radius:12px; padding:4px; flex:1;}
+  .seg button{flex:1; border:0; background:transparent; color:var(--muted); padding:9px 0; font-size:13px;
+    font-weight:700; border-radius:9px;}
+  .seg button.on{background:var(--accent); color:#1a1300;}
+  label.fld{font-size:12px; color:var(--muted); display:block; margin-bottom:6px;}
+  select{width:100%; background:var(--panel2); color:var(--txt); border:1px solid var(--line);
+    border-radius:10px; padding:10px; font-size:14px; font-weight:600;}
+  input[type=range]{width:100%; accent-color:var(--accent);}
+  .paceVal{font-size:16px; font-weight:800; color:var(--accent);}
+  .btns{display:flex; gap:8px; margin-top:6px;}
+  .btn{flex:1; border:0; border-radius:12px; padding:14px 0; font-size:15px; font-weight:800;}
+  .btn.start{background:var(--me); color:#04190f;}
+  .btn.stop{background:var(--ahead); color:#1a0303;}
+  .btn.reset{background:var(--panel2); color:var(--txt); border:1px solid var(--line);}
+  .hide{display:none !important;}
+  .note{font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;}
+  #status{font-size:12px; color:var(--accent); margin-top:8px; min-height:16px;}
+</style>
+</head>
+<body>
+
+<h1>런등수 — 실시간 등수 프로토타입</h1>
+<div class="sub">공개 통계 기반 가상 집단 100명 중, 지금 내 등수</div>
+
+<!-- 등수 -->
+<div class="rankCard">
+  <div class="rankNum"><span id="rank">--</span><small> / <span id="field">100</span></small></div>
+  <div class="rankLabel" id="rankLabel">대기 중 — 시작을 누르세요</div>
+</div>
+
+<!-- 앞/뒤 주자 -->
+<div class="gaps">
+  <div class="gap ahead"><div class="t">앞 주자</div><div class="v"><span id="ahead">--</span><span class="u"> m</span></div></div>
+  <div class="gap behind"><div class="t">뒤 주자</div><div class="v"><span id="behind">--</span><span class="u"> m</span></div></div>
+</div>
+
+<!-- 트랙 -->
+<div class="track" id="track">
+  <div class="trackTop">결승선 방향 ↑</div>
+  <div class="centerLine"></div>
+  <div class="trackBot">출발 방향 ↓</div>
+</div>
+
+<!-- 보조 스탯 -->
+<div class="stats">
+  <div class="stat"><div class="t">시간</div><div class="v" id="time">0:00</div></div>
+  <div class="stat"><div class="t">거리</div><div class="v" id="dist">0.00<span style="font-size:12px;color:var(--muted)"> km</span></div></div>
+  <div class="stat"><div class="t">페이스</div><div class="v" id="pace">--<span style="font-size:12px;color:var(--muted)"> /km</span></div></div>
+</div>
+
+<!-- 컨트롤 -->
+<div class="controls">
+  <div class="row">
+    <div class="seg" id="modeSeg">
+      <button data-mode="sim" class="on">시뮬레이션</button>
+      <button data-mode="gps">GPS 실측</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div style="flex:1">
+      <label class="fld">종목</label>
+      <select id="distance">
+        <option value="10000">10 km</option>
+        <option value="21097">하프 마라톤</option>
+        <option value="42195">풀 마라톤</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 시뮬레이션 전용 -->
+  <div id="simPanel">
+    <label class="fld">내 페이스: <span class="paceVal" id="paceLbl">6:30 /km</span></label>
+    <input type="range" id="paceRange" min="240" max="600" step="5" value="390">
+    <div class="row" style="margin-top:12px">
+      <div style="flex:1">
+        <label class="fld">시뮬 배속: <span class="paceVal" id="speedLbl">x1</span></label>
+        <input type="range" id="speedRange" min="1" max="20" step="1" value="1">
+      </div>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button class="btn start" id="startBtn">시작</button>
+    <button class="btn stop hide" id="stopBtn">정지</button>
+    <button class="btn reset" id="resetBtn">리셋</button>
+  </div>
+  <div id="status"></div>
+  <div class="note">
+    가상 집단 페이스 분포는 임시 placeholder(아마추어 추정치)입니다 — 추후 실제 통계로 교체.
+    GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
+  </div>
+</div>
+
+<script>
+/* ===========================================================
+   런등수 프로토타입
+   - 가상 집단 N명을 공개통계 기반 페이스 분포로 생성(placeholder)
+   - 등수 = 경과시간 t에서 내 누적거리 d 기준, d보다 멀리 간 사람 수 + 1
+   - 앞/뒤 주자 거리(m) = 바로 위/아래 등수 주자와의 누적거리 차
+   - 두 모드: 시뮬레이션(슬라이더), GPS 실측(watchPosition)
+   =========================================================== */
+
+const N = 100;                 // 가상 집단 인원
+let raceDistance = 10000;      // 종목 거리(m)
+let mode = 'sim';
+let running = false;
+
+// 상태
+let elapsed = 0;               // 경과 시간(s)
+let myDist = 0;                // 내 누적 거리(m)
+let myPaceSec = 390;           // 시뮬: 내 페이스(초/km)
+let simSpeed = 1;              // 시뮬 배속
+let lastTick = 0;              // 시뮬 델타 계산용
+let field = [];                // 가상 러너 속도 배열(m/s)
+
+// GPS
+let watchId = null;
+let lastCoord = null;
+let gpsStart = 0;
+let wakeLock = null;
+
+/* ---- 시드 고정 난수(필드 재현성 확보) ---- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(rng){ // Box-Muller
+  let u=0,v=0; while(u===0)u=rng(); while(v===0)v=rng();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+
+/* ---- 가상 집단 생성: 종목별 페이스 분포(placeholder) ---- */
+function buildField(){
+  // 평균/표준편차(초/km) — 아마추어 추정치, 추후 실제 통계로 교체
+  const cfg = {10000:{m:390,s:70}, 21097:{m:420,s:80}, 42195:{m:480,s:95}};
+  const c = cfg[raceDistance] || cfg[10000];
+  const rng = mulberry32(raceDistance);  // 종목별 고정 시드
+  field = [];
+  for(let i=0;i<N;i++){
+    let pace = c.m + gauss(rng)*c.s;          // 초/km
+    pace = Math.max(240, Math.min(600, pace)); // 4:00~10:00/km 클램프
+    field.push(1000/pace);                     // m/s
+  }
+}
+
+/* ---- t초 시점 각 가상 러너의 누적거리(등속, 결승선에서 캡) ---- */
+function fieldDistances(t){
+  return field.map(v=>Math.min(v*t, raceDistance));
+}
+
+/* ---- 등수/앞뒤 주자 계산 ---- */
+function computeRank(t, d){
+  const ds = fieldDistances(t);
+  let ahead = 0, nextAhead = Infinity, nextBehind = -Infinity;
+  for(const x of ds){
+    if(x > d){ ahead++; if(x < nextAhead) nextAhead = x; }
+    else if(x < d){ if(x > nextBehind) nextBehind = x; }
+  }
+  return {
+    rank: ahead + 1,
+    aheadGap: nextAhead===Infinity ? null : nextAhead - d,
+    behindGap: nextBehind===-Infinity ? null : d - nextBehind,
+    dists: ds
+  };
+}
+
+/* ---- 화면 갱신 ---- */
+const $ = id=>document.getElementById(id);
+function fmtTime(s){ s=Math.floor(s); const m=Math.floor(s/60); return m+':'+String(s%60).padStart(2,'0'); }
+function fmtPace(secPerKm){ if(!isFinite(secPerKm)||secPerKm<=0) return '--'; const m=Math.floor(secPerKm/60); return m+':'+String(Math.round(secPerKm%60)).padStart(2,'0'); }
+
+function render(){
+  const r = computeRank(elapsed, myDist);
+  $('rank').textContent = r.rank;
+  $('field').textContent = N;
+  $('time').textContent = fmtTime(elapsed);
+  $('dist').innerHTML = (myDist/1000).toFixed(2)+'<span style="font-size:12px;color:var(--muted)"> km</span>';
+  const curPace = myDist>0 ? elapsed/(myDist/1000) : Infinity;
+  $('pace').innerHTML = fmtPace(curPace)+'<span style="font-size:12px;color:var(--muted)"> /km</span>';
+  $('ahead').textContent = r.aheadGap===null ? '선두' : Math.round(r.aheadGap);
+  $('behind').textContent = r.behindGap===null ? '최후미' : Math.round(r.behindGap);
+
+  if(myDist>=raceDistance){
+    $('rankLabel').textContent = '완주! 최종 '+r.rank+'등';
+    stop();
+  } else if(running){
+    $('rankLabel').textContent = '현재 페이스 기준 '+r.rank+'등';
+  }
+  drawTrack(r);
+}
+
+/* ---- 트랙: 내 위치 중앙 고정, ±윈도우 내 주자 표시 ---- */
+function drawTrack(r){
+  const track = $('track');
+  track.querySelectorAll('.dot,.dotLbl').forEach(e=>e.remove());
+  const H = track.clientHeight, cy = H/2, WINDOW = 80; // ±80m
+  const place = (gapAhead)=> cy - (gapAhead/WINDOW)*(H/2-20); // +면 위(결승)
+  // 가상 러너
+  r.dists.forEach(x=>{
+    const gap = x - myDist;
+    if(Math.abs(gap) > WINDOW) return;
+    const dot = document.createElement('div');
+    dot.className='dot'; dot.style.top = place(gap)+'px';
+    track.appendChild(dot);
+  });
+  // 바로 앞/뒤 강조 + 라벨
+  if(r.aheadGap!==null && r.aheadGap<=WINDOW){
+    addDot(track, place(r.aheadGap), 'nAhead', '앞 +'+Math.round(r.aheadGap)+'m', 'var(--ahead)');
+  }
+  if(r.behindGap!==null && r.behindGap<=WINDOW){
+    addDot(track, place(-r.behindGap), 'nBehind', '뒤 -'+Math.round(r.behindGap)+'m', 'var(--behind)');
+  }
+  // 나
+  addDot(track, cy, 'me', '나 ('+r.rank+'등)', 'var(--me)');
+}
+function addDot(track, top, cls, label, color){
+  const dot=document.createElement('div'); dot.className='dot '+cls; dot.style.top=top+'px'; track.appendChild(dot);
+  const lbl=document.createElement('div'); lbl.className='dotLbl'; lbl.style.top=top+'px'; lbl.style.color=color; lbl.textContent=label; track.appendChild(lbl);
+}
+
+/* ---- 루프 ---- */
+let timer=null;
+function loop(){
+  if(mode==='sim' && running){
+    const now=performance.now();
+    const dt=(now-lastTick)/1000 * simSpeed; lastTick=now;
+    elapsed+=dt;
+    myDist+=(1000/myPaceSec)*dt;
+    if(myDist>raceDistance) myDist=raceDistance;
+  }
+  render();
+}
+
+/* ---- Wake Lock(화면 유지) ---- */
+async function reqWakeLock(){
+  try{ if('wakeLock' in navigator){ wakeLock=await navigator.wakeLock.request('screen'); } }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{ if(wakeLock===null && document.visibilityState==='visible' && running && mode==='gps') reqWakeLock(); });
+
+/* ---- GPS ---- */
+function haversine(a,b){
+  const R=6371000, toR=Math.PI/180;
+  const dLat=(b.lat-a.lat)*toR, dLon=(b.lon-a.lon)*toR;
+  const la1=a.lat*toR, la2=b.lat*toR;
+  const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function startGPS(){
+  if(!('geolocation' in navigator)){ $('status').textContent='이 기기는 위치를 지원하지 않습니다.'; return false; }
+  $('status').textContent='GPS 신호 잡는 중…';
+  gpsStart=Date.now(); lastCoord=null;
+  watchId=navigator.geolocation.watchPosition(pos=>{
+    const c={lat:pos.coords.latitude, lon:pos.coords.longitude};
+    elapsed=(Date.now()-gpsStart)/1000;
+    if(lastCoord){
+      const step=haversine(lastCoord,c);
+      if(step<50) myDist+=step; // 튀는 값 방지(>50m/업데이트 무시)
+    }
+    lastCoord=c;
+    $('status').textContent='GPS 추적 중 · 정확도 ±'+Math.round(pos.coords.accuracy)+'m';
+  }, err=>{
+    $('status').textContent='GPS 오류: '+err.message+' (설정에서 위치 권한 허용 필요)';
+  }, {enableHighAccuracy:true, maximumAge:1000, timeout:10000});
+  return true;
+}
+function stopGPS(){ if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
+
+/* ---- 시작/정지/리셋 ---- */
+async function start(){
+  if(running) return;
+  if(mode==='gps'){ await reqWakeLock(); if(!startGPS()) return; }
+  running=true; lastTick=performance.now();
+  $('startBtn').classList.add('hide'); $('stopBtn').classList.remove('hide');
+  if(!timer) timer=setInterval(loop,100);
+}
+function stop(){
+  running=false; stopGPS();
+  if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
+  $('stopBtn').classList.add('hide'); $('startBtn').classList.remove('hide');
+}
+function reset(){
+  stop(); elapsed=0; myDist=0; lastCoord=null;
+  $('status').textContent=''; $('rankLabel').textContent='대기 중 — 시작을 누르세요';
+  render();
+}
+
+/* ---- 이벤트 바인딩 ---- */
+$('modeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  reset();
+  mode=b.dataset.mode;
+  $('modeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  $('simPanel').classList.toggle('hide', mode!=='sim');
+});
+$('distance').addEventListener('change',e=>{ raceDistance=+e.target.value; buildField(); reset(); });
+$('paceRange').addEventListener('input',e=>{ myPaceSec=+e.target.value; $('paceLbl').textContent=fmtPace(myPaceSec)+' /km'; });
+$('speedRange').addEventListener('input',e=>{ simSpeed=+e.target.value; $('speedLbl').textContent='x'+simSpeed; });
+$('startBtn').addEventListener('click',start);
+$('stopBtn').addEventListener('click',stop);
+$('resetBtn').addEventListener('click',reset);
+
+/* ---- 초기화 ---- */
+buildField(); render();
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>

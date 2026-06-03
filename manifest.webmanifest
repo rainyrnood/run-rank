@@ -1,0 +1,15 @@
+{
+  "name": "런등수 — 실시간 등수 러닝",
+  "short_name": "런등수",
+  "description": "공개 통계 기반 가상 집단 안에서 실시간 내 등수를 보여주는 러닝 앱",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "./icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
+  ]
+}
