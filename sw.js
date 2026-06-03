@@ -1,7 +1,7 @@
 /* 런등수 — 서비스워커 (네트워크 우선 + 오프라인 캐시 폴백)
    온라인이면 항상 최신을 받아오고, 오프라인일 때만 캐시를 사용한다.
    (개발 중 옛 버전이 계속 보이는 문제 방지) */
-const CACHE = 'run-rank-v9';
+const CACHE = 'run-rank-v10';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './data.js'];
 
 self.addEventListener('install', e=>{

@@ -144,6 +144,14 @@
     </div>
   </div>
 
+  <div class="row">
+    <div class="seg" id="genderSeg">
+      <button data-g="M">남성</button>
+      <button data-g="F">여성</button>
+      <button data-g="X" class="on">혼성</button>
+    </div>
+  </div>
+
   <div id="ctrlBody">
 
   <div class="row">
@@ -178,13 +186,13 @@
   <div id="status"></div>
   <div id="dbg" class="note" style="color:var(--behind)"></div>
   <div class="note">
-    5km·10km는 한국 일반인 통계 + 실제 러너 페이싱 패턴(능력별 후반 감속·변동)으로 99명 각자의 페이스 곡선을 생성합니다(추월·역전 발생). 하프·풀 완주시간은 아직 임시값.
+    5km·10km는 한국 일반인 통계(남/여/혼성) + 실제 러너 페이싱 패턴(능력별 후반 감속·변동)으로 99명 각자의 페이스 곡선을 생성합니다(추월·역전 발생). 성별 버튼으로 비교 집단을 바꿉니다. 하프·풀 완주시간은 아직 임시값.
     GPS 모드는 화면이 켜져 있어야 추적됩니다(백그라운드 추적 불가).
   </div>
   </div><!-- /ctrlBody -->
 
   <div id="refPanel" class="hide">
-    <div class="maplbl">한국 일반인 기록 기준표 — 수능 등급식 상위 백분위별 (혼성 추정)</div>
+    <div class="maplbl" id="refTitle">한국 일반인 기록 기준표 — 혼성 · 수능 등급식 상위 백분위별</div>
     <div id="refTableWrap"></div>
     <div class="note" style="margin-top:14px; line-height:1.65">
       <b>근거 데이터</b><br>
@@ -215,6 +223,7 @@ const FIELD_N = 99;            // 가상 러너 수 (나를 더해 총 100명)
 const TOTAL = 100;            // 나 포함 전체 인원
 let raceDistance = 10000;      // 종목 거리(m)
 let mode = 'gps';             // 기본 탭: GPS 실측
+let gender = 'X';             // 비교 집단 성별: M 남 / F 여 / X 혼성
 let running = false;
 let gpsStarted = false;
 
@@ -241,7 +250,7 @@ function gauss(rng){ // Box-Muller
 
 /* ---- 가상 집단 생성: 통계 완주시간 + 페이싱 곡선(data.js) ---- */
 function buildField(){
-  field = window.RUN_STATS.buildRunners(raceDistance, FIELD_N);
+  field = window.RUN_STATS.buildRunners(raceDistance, FIELD_N, gender);
 }
 
 /* ---- t초 시점 각 가상 러너의 누적거리(페이싱 곡선 기반) ---- */
@@ -475,6 +484,16 @@ $('modeSeg').addEventListener('click',e=>{
   $('mapWrap').classList.toggle('hide', mode!=='gps');   // 지도는 GPS 모드에서만
 });
 
+$('genderSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  gender=b.dataset.g;
+  $('genderSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  reset();              // 비교 집단이 바뀌므로 초기화 후 재생성
+  buildField();
+  if(mode==='ref') buildRefTable();
+  render();
+});
+
 /* ---- 참고표: 수능 등급식 상위 백분위별 5K·10K 기록·페이스 ---- */
 function buildRefTable(){
   const grades = [
@@ -483,14 +502,16 @@ function buildRefTable(){
   ];
   let h = '<table class="ref"><tr><th>등급</th><th>상위</th><th>5K 기록</th><th>5K /km</th><th>10K 기록</th><th>10K /km</th></tr>';
   for(const gr of grades){
-    const t5 = window.RUN_STATS.finishSeconds(5000, gr.top);
-    const t10 = window.RUN_STATS.finishSeconds(10000, gr.top);
+    const t5 = window.RUN_STATS.finishSeconds(5000, gr.top, gender);
+    const t10 = window.RUN_STATS.finishSeconds(10000, gr.top, gender);
     h += '<tr><td class="g">'+gr.g+'</td><td class="p">'+gr.top+'%</td>'
        + '<td>'+fmtTime(t5)+'</td><td>'+fmtPace(t5/5)+'</td>'
        + '<td>'+fmtTime(t10)+'</td><td>'+fmtPace(t10/10)+'</td></tr>';
   }
   h += '</table>';
   $('refTableWrap').innerHTML = h;
+  const gName = gender==='M'?'남성': gender==='F'?'여성':'혼성';
+  $('refTitle').textContent = '한국 일반인 기록 기준표 — '+gName+' · 수능 등급식 상위 백분위별';
 }
 $('distance').addEventListener('change',e=>{ raceDistance=+e.target.value; buildField(); reset(); });
 $('paceRange').addEventListener('input',e=>{ myPaceSec=+e.target.value; $('paceLbl').textContent=fmtPace(myPaceSec)+' /km'; });
