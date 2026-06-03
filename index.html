@@ -186,7 +186,18 @@
   <div id="refPanel" class="hide">
     <div class="maplbl">한국 일반인 기록 기준표 — 수능 등급식 상위 백분위별 (혼성 추정)</div>
     <div id="refTableWrap"></div>
-    <div class="note">분포 데이터(data.js)에서 산출. 각 칸은 해당 상위 % 경계의 완주시간과 km당 페이스. 5km·10km만 실통계 기반.</div>
+    <div class="note" style="margin-top:14px; line-height:1.65">
+      <b>근거 데이터</b><br>
+      · RunRepeat 누적 2,300만 건 (5K 중앙값 남 31:18·여 36:24, 전체 평균 39:02)<br>
+      · Outside 220만 건 (2024, 30대 남 P50 30:32·여 36:34)<br>
+      · parkrun 전체 평균 34:18<br>
+      · 국내(plusblog·runstory·e-마라톤): 10K 일반인 50~70분, 등급별 남 중간 46~57·여 54~69<br>
+      <b>가공 로직</b><br>
+      ① 위 자료를 혼성(남녀 50:50) ‘백분위→완주시간(초)’ 앵커표로 종합<br>
+      ② 백분위를 선형보간해 100명(나 포함)으로 표준화, 각 러너 속도 = 거리 ÷ 완주시간<br>
+      ③ 페이스 곡선: 실제 러너 문헌(마라톤)으로 보정한 합성 — 능력 낮을수록 후반 감속·변동 큼 (Deaner 2015: 후반감속 5.6%→22.7%, Haney&amp;Mercer: 페이스변동 12%→22%). 마라톤 수치는 ‘방향’만 쓰고 5K/10K로 크기 축소<br>
+      <b>한계</b> 한국 단독 공식 분포가 부족해 국내+글로벌 자료를 보정·종합한 <b>추정치</b>이며 완전한 실측이 아님. 상세 출처·검증은 research.md.
+    </div>
   </div>
 </div>
 
@@ -451,11 +462,12 @@ function reset(){
 /* ---- 이벤트 바인딩 ---- */
 $('modeSeg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
-  reset();
-  mode=b.dataset.mode;
+  const target=b.dataset.mode;
+  if(target!=='ref') reset();          // 참고표로 갈 땐 현재/완주 기록 보존(표와 비교용)
+  mode=target;
   $('modeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   const isRef = mode==='ref';
-  $('raceView').classList.toggle('hide', isRef);   // 참고표 탭에선 레이스 UI 숨김
+  // 참고표 탭에서도 시간·거리·페이스·등수(raceView)는 그대로 두고, 입력 컨트롤만 숨김
   $('ctrlBody').classList.toggle('hide', isRef);
   $('refPanel').classList.toggle('hide', !isRef);
   if(isRef) buildRefTable();
