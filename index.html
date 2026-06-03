@@ -80,7 +80,7 @@
   .btns{display:flex; gap:8px; margin-top:6px;}
   .btn{flex:1; border:0; border-radius:12px; padding:14px 0; font-size:15px; font-weight:800;}
   .btn.start{background:var(--me); color:#04190f;}
-  .btn.stop{background:var(--ahead); color:#1a0303;}
+  .btn.pause{background:var(--accent); color:#1a1300;}
   .btn.reset{background:var(--panel2); color:var(--txt); border:1px solid var(--line);}
   .hide{display:none !important;}
   .note{font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;}
@@ -122,7 +122,7 @@
 </div>
 
 <!-- 실시간 위치 지도 (GPS 모드 전용) -->
-<div id="mapWrap" class="hide">
+<div id="mapWrap">
   <div class="maplbl">실시간 위치 — 초록 점이 현재 나, 선이 이동 경로</div>
   <div id="map"></div>
 </div>
@@ -131,8 +131,8 @@
 <div class="controls">
   <div class="row">
     <div class="seg" id="modeSeg">
-      <button data-mode="sim" class="on">시뮬레이션</button>
-      <button data-mode="gps">GPS 실측</button>
+      <button data-mode="gps" class="on">GPS 실측</button>
+      <button data-mode="sim">시뮬레이션</button>
     </div>
   </div>
 
@@ -149,7 +149,7 @@
   </div>
 
   <!-- 시뮬레이션 전용 -->
-  <div id="simPanel">
+  <div id="simPanel" class="hide">
     <label class="fld">내 페이스: <span class="paceVal" id="paceLbl">6:30 /km</span></label>
     <input type="range" id="paceRange" min="240" max="600" step="5" value="390">
     <div class="row" style="margin-top:12px">
@@ -162,7 +162,7 @@
 
   <div class="btns">
     <button class="btn start" id="startBtn">시작</button>
-    <button class="btn stop hide" id="stopBtn">정지</button>
+    <button class="btn pause hide" id="pauseBtn">일시정지</button>
     <button class="btn reset" id="resetBtn">리셋</button>
   </div>
   <div id="status"></div>
@@ -183,10 +183,12 @@
    - 두 모드: 시뮬레이션(슬라이더), GPS 실측(watchPosition)
    =========================================================== */
 
-const N = 100;                 // 가상 집단 인원
+const FIELD_N = 99;            // 가상 러너 수 (나를 더해 총 100명)
+const TOTAL = 100;            // 나 포함 전체 인원
 let raceDistance = 10000;      // 종목 거리(m)
-let mode = 'sim';
+let mode = 'gps';             // 기본 탭: GPS 실측
 let running = false;
+let gpsStarted = false;
 
 // 상태
 let elapsed = 0;               // 경과 시간(s)
@@ -221,7 +223,7 @@ function buildField(){
   const c = cfg[raceDistance] || {m:420,s:80};
   const rng = mulberry32(raceDistance);
   field = [];
-  for(let i=0;i<N;i++){
+  for(let i=0;i<FIELD_N;i++){
     let pace = c.m + gauss(rng)*c.s;
     pace = Math.max(240, Math.min(600, pace));
     field.push(1000/pace);
@@ -257,7 +259,7 @@ function fmtPace(secPerKm){ if(!isFinite(secPerKm)||secPerKm<=0) return '--'; co
 function render(){
   const r = computeRank(elapsed, myDist);
   $('rank').textContent = r.rank;
-  $('field').textContent = N;
+  $('field').textContent = TOTAL;
   $('time').textContent = fmtTime(elapsed);
   $('dist').innerHTML = (myDist/1000).toFixed(2)+'<span style="font-size:12px;color:var(--muted)"> km</span>';
   const curPace = myDist>0 ? elapsed/(myDist/1000) : Infinity;
@@ -307,14 +309,15 @@ function addDot(track, top, cls, label, color){
 let timer=null;
 function loop(){
   if(running){
+    const now=performance.now();
+    const dt=(now-lastTick)/1000; lastTick=now;
     if(mode==='sim'){
-      const now=performance.now();
-      const dt=(now-lastTick)/1000 * simSpeed; lastTick=now;
-      elapsed+=dt;
-      myDist+=(1000/myPaceSec)*dt;
+      const d2=dt*simSpeed;
+      elapsed+=d2;
+      myDist+=(1000/myPaceSec)*d2;
       if(myDist>raceDistance) myDist=raceDistance;
-    } else if(mode==='gps'){
-      elapsed=(Date.now()-gpsStart)/1000;  // GPS 수신과 무관하게 시계는 즉시·연속으로 흐름
+    } else { // gps: 시계는 달리는 동안만 실시간으로 누적 (일시정지하면 멈춤)
+      elapsed+=dt;
     }
   }
   render();
@@ -342,7 +345,7 @@ function startGPS(){
   const onPos = pos=>{
     updates++;
     const c={lat:pos.coords.latitude, lon:pos.coords.longitude};
-    if(lastCoord){ const step=haversine(lastCoord,c); if(step<50) myDist+=step; }
+    if(running && lastCoord){ const step=haversine(lastCoord,c); if(step<50) myDist+=step; } // 일시정지 중엔 거리 미적산
     lastCoord=c;
     $('status').textContent='GPS 추적 중 · 정확도 ±'+Math.round(pos.coords.accuracy)+'m';
     $('dbg').textContent='수신 '+updates+'회 · 위도 '+c.lat.toFixed(5)+' · 경도 '+c.lon.toFixed(5)+' · 누적 '+myDist.toFixed(1)+'m';
@@ -381,23 +384,36 @@ function updateMap(c, acc){
 }
 function clearPath(){ pathPts=[]; if(pathLine) pathLine.setLatLngs([]); }
 
-/* ---- 시작/정지/리셋 ---- */
-async function start(){
+/* ---- 시작(재개)/일시정지/완주정지/리셋 ---- */
+function updateButtons(){
+  $('startBtn').classList.toggle('hide', running);
+  $('pauseBtn').classList.toggle('hide', !running);
+  $('startBtn').textContent = (!running && elapsed>0) ? '재개' : '시작';
+}
+async function start(){            // 시작 또는 재개
   if(running) return;
-  if(mode==='gps'){ await reqWakeLock(); if(!startGPS()) return; }
-  running=true; lastTick=performance.now();
-  $('startBtn').classList.add('hide'); $('stopBtn').classList.remove('hide');
+  if(mode==='gps'){
+    await reqWakeLock();           // 재개 시에도 화면 유지 재요청
+    if(!gpsStarted){ if(!startGPS()) return; gpsStarted=true; }
+  }
+  running=true; lastTick=performance.now(); lastCoord=null; // 재개 시 거리 점프 방지
+  updateButtons();
   if(!timer) timer=setInterval(loop,100);
 }
-function stop(){
-  running=false; stopGPS();
+function pause(){                  // 일시정지 (상태 유지, GPS 추적은 계속)
+  running=false; lastCoord=null;
+  $('status').textContent = (mode==='gps') ? '일시정지됨 — 재개를 누르세요 (위치는 계속 표시)' : '일시정지됨';
+  updateButtons();
+}
+function stop(){                   // 완주 등 완전 정지
+  running=false; stopGPS(); gpsStarted=false;
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
-  $('stopBtn').classList.add('hide'); $('startBtn').classList.remove('hide');
+  updateButtons();
 }
 function reset(){
   stop(); elapsed=0; myDist=0; lastCoord=null; clearPath();
   $('status').textContent=''; $('dbg').textContent=''; $('rankLabel').textContent='대기 중 — 시작을 누르세요';
-  render();
+  updateButtons(); render();
 }
 
 /* ---- 이벤트 바인딩 ---- */
@@ -413,11 +429,11 @@ $('distance').addEventListener('change',e=>{ raceDistance=+e.target.value; build
 $('paceRange').addEventListener('input',e=>{ myPaceSec=+e.target.value; $('paceLbl').textContent=fmtPace(myPaceSec)+' /km'; });
 $('speedRange').addEventListener('input',e=>{ simSpeed=+e.target.value; $('speedLbl').textContent='x'+simSpeed; });
 $('startBtn').addEventListener('click',start);
-$('stopBtn').addEventListener('click',stop);
+$('pauseBtn').addEventListener('click',pause);
 $('resetBtn').addEventListener('click',reset);
 
 /* ---- 초기화 ---- */
-buildField(); render();
+buildField(); updateButtons(); render();
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
 </script>
 </body>

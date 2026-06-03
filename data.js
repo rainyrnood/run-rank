@@ -55,13 +55,15 @@ function interpSeconds(anchors, p){
   return last[1];
 }
 
-// 종목 거리(m) → 100명 표준화 속도(m/s) 배열. 통계 없으면 null.
-function buildStandardField(dist){
+// 종목 거리(m) → 가상 러너 n명 표준화 속도(m/s) 배열. 통계 없으면 null.
+// 기본 n=99: '나'를 더해 총 100명이 되도록 가상 집단은 99명으로 생성.
+function buildStandardField(dist, n){
+  n = n || 99;
   const a = ANCHORS[dist];
   if(!a) return null;
   const speeds = [];
-  for(let i=0;i<100;i++){
-    const p = i + 0.5;                 // 0.5 ~ 99.5
+  for(let i=0;i<n;i++){
+    const p = (i + 0.5) / n * 100;     // 분포 전 구간을 n개로 균등 표집
     const t = interpSeconds(a, p);
     speeds.push(dist / t);             // m/s
   }
